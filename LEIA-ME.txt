@@ -1,0 +1,21 @@
+CasaFinance — versão instalável (app)
+
+Publicar grátis no GitHub Pages:
+1. github.com > New repository > nome: casafinance > Create.
+2. "uploading an existing file" > arraste TODOS os arquivos desta pasta > Commit.
+3. Settings > Pages > Branch: main / (root) > Save.
+4. Em 1-2 minutos o endereço aparece: https://SEU-USUARIO.github.io/casafinance/
+
+Instalar no celular:
+5. Abra o endereço no Chrome do Android > menu ⋮ > "Instalar app".
+   (iPhone: Safari > Compartilhar > Adicionar à Tela de Início.)
+
+Levar seus dados:
+6. No CasaFinance antigo: Ajustes > Backup > Baixar backup.
+7. No app instalado: Ajustes > Backup > Restaurar > escolha o arquivo.
+
+Atualizar depois: substitua o index.html no repositório. O app pega a versão nova sozinho.
+
+Este pacote NÃO leva seus extratos nem holerites. Mas o código traz os valores padrão
+(salários, contas fixas, histórico do Registrato). Repositório público = qualquer pessoa com
+o link pode ver esses padrões.
