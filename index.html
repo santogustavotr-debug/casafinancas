@@ -224,6 +224,11 @@ body.m-open .m-fab{display:none}
 .m-dots{display:inline-flex;gap:4px}.m-dots i{width:7px;height:7px;border-radius:50%;background:var(--ink3);animation:mdot 1s infinite}.m-dots i:nth-child(2){animation-delay:.15s}.m-dots i:nth-child(3){animation-delay:.3s}
 @keyframes mdot{0%,100%{opacity:.25}50%{opacity:1}}
 @media(max-width:700px){.m-top span{display:none}.m-top{padding:6px 8px}}
+.nv-chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:4px 10px;border-radius:999px;border:1px solid var(--line);background:var(--paper);color:var(--ink3);cursor:pointer;white-space:nowrap}
+.nv-chip::before{content:'';width:8px;height:8px;border-radius:50%;background:var(--ink3)}
+.nv-chip.ok{color:var(--money)}.nv-chip.ok::before{background:var(--money)}.nv-chip.sync::before{background:var(--gus);animation:mdot 1s infinite}
+.nv-chip.erro,.nv-chip.conflito{color:var(--stamp)}.nv-chip.erro::before,.nv-chip.conflito::before{background:var(--stamp)}.nv-chip.offline::before,.nv-chip.login::before{background:var(--boleto)}
+@media(max-width:700px){#nv-chip{display:none}}
 </style>
 </head>
 <body>
@@ -2569,6 +2574,151 @@ function pwaPainel(){const https=/^https:$/.test(location.protocol)||location.ho
 {const _aj=PAGES.ajustes;PAGES.ajustes=()=>_aj().replace('</h1>','</h1>'+pwaPainel())}
 // atalhos do ícone (segurar o ícone do app): ?p=pagina e ?merlin=1
 setTimeout(()=>{try{const u=new URLSearchParams(location.search);const p=u.get('p');if(p&&PAGES[p])go(p);if(u.get('merlin'))merlinOpen(true);if(p||u.get('merlin'))history.replaceState(null,'',location.pathname)}catch(e){}},300);
+
+/* ================== BANCO DE DADOS NA NUVEM (Supabase) ================== */
+const NV_KEY='cfNuvem',NV_LIB='https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js';
+const NV={cli:null,user:null,status:'off',msg:'',conflito:null,timer:null,canal:null,versoes:null,pulling:false};
+function nvCfg(){try{return Object.assign({url:'',chave:'',casa:'casa-luiz-lorena',emailG:'',emailL:'',rev:0,sujo:false,ultimo:''},JSON.parse(localStorage.getItem(NV_KEY)||'{}'))}catch(e){return{url:'',chave:'',casa:'casa-luiz-lorena',emailG:'',emailL:'',rev:0,sujo:false,ultimo:''}}}
+function nvSet(p){const c=Object.assign(nvCfg(),p);try{localStorage.setItem(NV_KEY,JSON.stringify(c))}catch(e){}return c}
+function nvStatus(s,msg){NV.status=s;NV.msg=msg||'';const el=document.getElementById('nv-chip');if(el){el.className='nv-chip '+s;el.innerHTML=nvChipTxt()}const p=document.getElementById('nv-st');if(p)p.innerHTML=nvChipTxt()}
+function nvChipTxt(){const c=nvCfg();return{off:'Só neste aparelho',login:'Entrar na nuvem',sync:'Sincronizando…',ok:`Salvo na nuvem${c.ultimo?' · '+new Date(c.ultimo).toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):''}`,offline:'Sem internet — salvo no aparelho',erro:'Erro na nuvem',conflito:'Conflito — escolha a versão'}[NV.status]+(NV.msg&&NV.status==='erro'?`: ${esc(NV.msg)}`:'')}
+function nvLib(){return window.supabase?Promise.resolve():new Promise((ok,no)=>{const s=document.createElement('script');s.src=NV_LIB;s.onload=ok;s.onerror=()=>no(new Error('não carregou a biblioteca do Supabase'));document.head.appendChild(s)})}
+async function nvIniciar(){const c=nvCfg();if(!c.url||!c.chave){nvStatus('off');return}
+  try{await nvLib();NV.cli=window.supabase.createClient(c.url,c.chave,{auth:{persistSession:true,storageKey:'cfNuvemAuth'}});
+    const{data}=await NV.cli.auth.getSession();NV.user=data&&data.session?data.session.user:null;
+    NV.cli.auth.onAuthStateChange((_e,s)=>{const u=s?s.user:null;if((u&&u.id)!==(NV.user&&NV.user.id)){NV.user=u;if(u)nvPuxar();else nvStatus('login');if(page==='ajustes')render()}});
+    if(!NV.user){nvStatus('login');return}
+    await nvPuxar();nvOuvir()}catch(e){nvStatus(navigator.onLine?'erro':'offline',e.message)}}
+function nvAplicar(remoto){try{localStorage.setItem(KEY,JSON.stringify(remoto.dados))}catch(e){}db=load();save0();nvSet({rev:remoto.rev,sujo:false,ultimo:remoto.atualizado_em});render()}
+async function nvPuxar(){if(!NV.cli||!NV.user||NV.pulling)return;NV.pulling=true;nvStatus('sync');const c=nvCfg();
+  try{const{data:r,error}=await NV.cli.from('casas').select('*').eq('id',c.casa).maybeSingle();if(error)throw error;
+    if(!r){const{data:n,error:e2}=await NV.cli.from('casas').insert({id:c.casa,dados:db,rev:1,atualizado_por:NV.user.email}).select().single();if(e2)throw e2;nvSet({rev:1,sujo:false,ultimo:n.atualizado_em});nvStatus('ok');toast('Dados enviados para a nuvem');return}
+    if(r.rev>c.rev){if(c.sujo){NV.conflito=r;nvStatus('conflito');render();return}nvAplicar(r);nvStatus('ok');toast(`Atualizado da nuvem (${r.atualizado_por||''})`);return}
+    if(c.sujo)await nvEnviar(true);else nvStatus('ok')}
+  catch(e){nvStatus(navigator.onLine?'erro':'offline',e.message||String(e))}finally{NV.pulling=false}}
+async function nvEnviar(ja){if(!NV.cli||!NV.user)return;const c=nvCfg();if(!ja)nvStatus('sync');
+  try{const{data,error}=await NV.cli.from('casas').update({dados:db,rev:c.rev+1,atualizado_por:NV.user.email,atualizado_em:new Date().toISOString()}).eq('id',c.casa).eq('rev',c.rev).select();if(error)throw error;
+    if(!data||!data.length){NV.pulling=false;return nvPuxar()} // alguém salvou antes: confere conflito
+    nvSet({rev:data[0].rev,sujo:false,ultimo:data[0].atualizado_em});nvStatus('ok')}
+  catch(e){nvStatus(navigator.onLine?'erro':'offline',e.message||String(e))}}
+function nvOuvir(){if(!NV.cli||NV.canal)return;const c=nvCfg();
+  NV.canal=NV.cli.channel('casa-'+c.casa).on('postgres_changes',{event:'UPDATE',schema:'public',table:'casas',filter:'id=eq.'+c.casa},p=>{const r=p.new;if(!r||r.rev<=nvCfg().rev)return;
+    if(nvCfg().sujo){NV.conflito=r;nvStatus('conflito');render()}else{nvAplicar(r);nvStatus('ok');toast(`${r.atualizado_por===NV.user.email?'Outro aparelho':(r.atualizado_por||'Alguém')} atualizou os dados`)}}).subscribe()}
+// toda gravação local marca "sujo" e envia em 2 s
+{const _s=save;save=function(){_s();if(!NV.cli||!NV.user)return;nvSet({sujo:true});clearTimeout(NV.timer);NV.timer=setTimeout(()=>nvEnviar(),2000)}}
+window.addEventListener('online',()=>{if(NV.user)nvPuxar()});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&NV.user)nvPuxar()});
+
+async function nvEntrar(cadastro){const em=document.getElementById('nv-em').value.trim(),pw=document.getElementById('nv-pw').value;if(!em||pw.length<6)return toast('E-mail e senha (mínimo 6 caracteres)');
+  try{if(!NV.cli)await nvIniciar();const f=cadastro?NV.cli.auth.signUp({email:em,password:pw}):NV.cli.auth.signInWithPassword({email:em,password:pw});const{data,error}=await f;if(error)throw error;
+    if(cadastro&&!data.session){toast('Conta criada. Confirme pelo link que chegou no e-mail e depois entre.');return}
+    NV.user=data.user||data.session.user;toast('Conectado');await nvPuxar();nvOuvir();render()}catch(e){toast('Não deu certo: '+(e.message||e))}}
+async function nvSair(){if(NV.cli)await NV.cli.auth.signOut();if(NV.canal){NV.cli.removeChannel(NV.canal);NV.canal=null}NV.user=null;nvStatus('login');render()}
+function nvConectar(){const url=document.getElementById('nv-url').value.trim().replace(/\/$/,''),chave=document.getElementById('nv-key').value.trim(),casa=(document.getElementById('nv-casa').value.trim()||'casa-luiz-lorena').toLowerCase().replace(/[^a-z0-9-]/g,'-');
+  if(!/^https:\/\/[a-z0-9-]+\.supabase\.co$/.test(url))return toast('A URL é algo como https://xxxx.supabase.co');if(chave.length<30)return toast('Cole a chave anon/publishable do projeto');
+  nvSet({url,chave,casa});NV.cli=null;nvIniciar().then(render)}
+async function nvResolver(qual){const r=NV.conflito;NV.conflito=null;if(!r)return;if(qual==='nuvem'){nvAplicar(r);nvStatus('ok')}else{nvSet({rev:r.rev});await nvEnviar()}render()}
+async function nvVersoes(){if(!NV.cli)return;const{data,error}=await NV.cli.from('casa_versoes').select('id,rev,salvo_em,salvo_por').eq('casa_id',nvCfg().casa).order('id',{ascending:false}).limit(30);NV.versoes=error?[]:data;render()}
+async function nvRestaurarVersao(id){if(!confirm('Voltar os dados para esta versão? A versão atual fica guardada no histórico.'))return;const{data,error}=await NV.cli.from('casa_versoes').select('dados').eq('id',id).single();if(error)return toast(error.message);
+  try{localStorage.setItem(KEY,JSON.stringify(data.dados))}catch(e){}db=load();save();toast('Versão restaurada');render()}
+
+function nvSQL(){const c=nvCfg(),g=(c.emailG||'email-do-gustavo@gmail.com').replace(/'/g,''),l=(c.emailL||'email-da-lorena@gmail.com').replace(/'/g,''),casa=c.casa;
+return `-- CasaFinance: banco de dados (cole no Supabase > SQL Editor > Run)
+create table if not exists public.casas (
+  id text primary key,
+  dados jsonb not null,
+  rev bigint not null default 1,
+  atualizado_em timestamptz not null default now(),
+  atualizado_por text
+);
+create table if not exists public.casa_membros (
+  casa_id text not null,
+  email text not null,
+  primary key (casa_id, email)
+);
+create table if not exists public.casa_versoes (
+  id bigserial primary key,
+  casa_id text not null,
+  dados jsonb not null,
+  rev bigint,
+  salvo_em timestamptz not null default now(),
+  salvo_por text
+);
+
+-- guarda uma cópia antes de cada alteração (no máximo 1 a cada 15 min, últimas 100)
+create or replace function public.guardar_versao() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if not exists (select 1 from casa_versoes where casa_id = old.id and salvo_em > now() - interval '15 minutes') then
+    insert into casa_versoes (casa_id, dados, rev, salvo_por) values (old.id, old.dados, old.rev, old.atualizado_por);
+    delete from casa_versoes where casa_id = old.id and id not in
+      (select id from casa_versoes where casa_id = old.id order by id desc limit 100);
+  end if;
+  return new;
+end $$;
+drop trigger if exists trg_versao on public.casas;
+create trigger trg_versao before update on public.casas for each row execute function public.guardar_versao();
+
+-- só quem está na lista de membros lê e grava
+alter table public.casas enable row level security;
+alter table public.casa_membros enable row level security;
+alter table public.casa_versoes enable row level security;
+create or replace function public.e_membro(c text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from casa_membros where casa_id = c and lower(email) = lower(auth.jwt() ->> 'email'))
+$$;
+drop policy if exists le on public.casas;       create policy le on public.casas for select using (public.e_membro(id));
+drop policy if exists cria on public.casas;     create policy cria on public.casas for insert with check (public.e_membro(id));
+drop policy if exists altera on public.casas;   create policy altera on public.casas for update using (public.e_membro(id)) with check (public.e_membro(id));
+drop policy if exists ve_membros on public.casa_membros; create policy ve_membros on public.casa_membros for select using (lower(email) = lower(auth.jwt() ->> 'email'));
+drop policy if exists le_versoes on public.casa_versoes; create policy le_versoes on public.casa_versoes for select using (public.e_membro(casa_id));
+
+-- permissões para o app (funciona mesmo com "expor novas tabelas" desligado)
+grant usage on schema public to authenticated;
+grant select, insert, update on public.casas to authenticated;
+grant select on public.casa_membros, public.casa_versoes to authenticated;
+revoke all on public.casas, public.casa_membros, public.casa_versoes from anon;
+
+-- quem pode acessar esta casa
+insert into public.casa_membros (casa_id, email) values
+  ('${casa}', '${g}'),
+  ('${casa}', '${l}')
+on conflict do nothing;
+
+-- atualização ao vivo entre os celulares
+do $$ begin
+  alter publication supabase_realtime add table public.casas;
+exception when others then null; end $$;`}
+function nvCopiar(){const t=nvSQL();(navigator.clipboard?navigator.clipboard.writeText(t):Promise.reject()).then(()=>toast('SQL copiado'),()=>{const a=document.getElementById('nv-sql');a.select();document.execCommand('copy');toast('SQL copiado')})}
+
+function nvPainel(){const c=nvCfg(),con=!!(c.url&&c.chave);
+  const conf=NV.conflito?`<div class="panel" style="border-left:4px solid var(--stamp);margin:10px 0"><b>Os dados mudaram na nuvem e aqui ao mesmo tempo.</b><p class="note">Na nuvem: versão ${NV.conflito.rev}, salva por ${esc(NV.conflito.atualizado_por||'?')} em ${new Date(NV.conflito.atualizado_em).toLocaleString('pt-BR')}.</p><div class="toolbar" style="margin-top:8px"><button class="btn" onclick="nvResolver('nuvem')">Usar a da nuvem</button><button class="btn ghost" onclick="nvResolver('minha')">Manter a deste aparelho</button></div></div>`:'';
+  const login=con?(NV.user?`<p>Conectado como <b>${esc(NV.user.email)}</b> · casa <b>${esc(c.casa)}</b> · versão ${c.rev}</p>
+      <div class="toolbar" style="margin-top:8px"><button class="btn sm" onclick="nvPuxar()">Sincronizar agora</button><button class="btn sm ghost" onclick="nvVersoes()">Histórico de versões</button><button class="btn sm ghost" onclick="nvSair()">Sair</button></div>
+      ${NV.versoes?`<div class="receipt" style="margin-top:10px">${NV.versoes.length?NV.versoes.map(v=>`<div class="ln"><span>${new Date(v.salvo_em).toLocaleString('pt-BR')} · v${v.rev} · ${esc(v.salvo_por||'')}</span><button class="btn sm ghost" onclick="nvRestaurarVersao(${v.id})">Restaurar</button></div>`).join(''):'<div class="note">Ainda não há versões antigas.</div>'}</div>`:''}`
+    :`<div class="form" style="grid-template-columns:1fr 1fr auto auto;margin-top:8px;align-items:end"><label class="fl">E-mail<input class="f" id="nv-em" type="email" autocomplete="username" value="${esc(c.emailG||'')}"></label><label class="fl">Senha<input class="f" id="nv-pw" type="password" autocomplete="current-password"></label><button class="btn" onclick="nvEntrar(false)">Entrar</button><button class="btn ghost" onclick="nvEntrar(true)">Criar conta</button></div><p class="note" style="margin-top:6px">Primeira vez: <b>Criar conta</b> com um dos e-mails da lista de membros (passo 3).</p>`):'';
+  return`<section class="panel sec" id="nuvem"><h2>Banco de dados na nuvem</h2>
+  <p class="note">Salva tudo num banco de dados (Supabase, grátis): lançamentos, extratos, holerites, carteira, metas e configurações. Você e a Lorena entram com e-mail e senha e veem os mesmos dados em qualquer aparelho, atualizando ao vivo. Neste aparelho continua funcionando sem internet; quando volta, sincroniza. Guarda as últimas 100 versões para desfazer.</p>
+  <p style="margin-top:8px"><span class="nv-chip ${NV.status}" id="nv-st">${nvChipTxt()}</span></p>${conf}${login}
+  <details style="margin-top:12px" ${con?'':'open'}><summary style="cursor:pointer;font-weight:600">${con?'Configuração do banco':'Como criar o banco (10 minutos, uma vez só)'}</summary>
+    <ol style="margin:10px 0 0 18px;line-height:1.7">
+      <li>Crie uma conta grátis em <b>supabase.com</b> › <b>New project</b> (nome: casafinance, região: São Paulo).</li>
+      <li>Preencha os e-mails de vocês dois abaixo — o SQL já sai pronto com eles.</li>
+      <li>No projeto: <b>SQL Editor</b> › cole o SQL (botão Copiar) › <b>Run</b>.</li>
+      <li>Em <b>Project Settings › API</b> copie a <b>Project URL</b> e a chave <b>anon public</b> e cole aqui. Clique em <b>Conectar</b>.</li>
+      <li>Crie a conta com seu e-mail. Os dados deste aparelho sobem para o banco. No celular da Lorena: mesmo passo 4 e ela cria a conta com o e-mail dela.</li></ol>
+    <div class="form" style="grid-template-columns:1fr 1fr;margin-top:10px">
+      <label class="fl">E-mail do Gustavo<input class="f" type="email" value="${esc(c.emailG)}" onchange="nvSet({emailG:this.value.trim()});render()"></label>
+      <label class="fl">E-mail da Lorena<input class="f" type="email" value="${esc(c.emailL)}" onchange="nvSet({emailL:this.value.trim()});render()"></label>
+      <label class="fl">Project URL<input class="f" id="nv-url" placeholder="https://xxxx.supabase.co" value="${esc(c.url)}"></label>
+      <label class="fl">Chave anon public<input class="f" id="nv-key" placeholder="eyJhbGciOi..." value="${esc(c.chave)}"></label>
+      <label class="fl">Nome da casa<input class="f" id="nv-casa" value="${esc(c.casa)}"></label>
+      <div style="align-self:end"><button class="btn" onclick="nvConectar()">Conectar</button></div></div>
+    <textarea class="f" id="nv-sql" readonly style="width:100%;height:220px;margin-top:10px;font-family:ui-monospace,Consolas,monospace;font-size:12px">${esc(nvSQL())}</textarea>
+    <div class="toolbar" style="margin-top:6px"><button class="btn sm" onclick="nvCopiar()">Copiar SQL</button><span class="note">A chave anon é pública por natureza; quem protege os dados são as regras do SQL (só os e-mails da lista entram).</span></div></details></section>`}
+{const _aj=PAGES.ajustes;PAGES.ajustes=()=>_aj().replace('</h1>','</h1>'+nvPainel())}
+// selo no topo
+setTimeout(()=>{const b=document.querySelector('.brand');if(b&&!document.getElementById('nv-chip')){const s=document.createElement('button');s.id='nv-chip';s.className='nv-chip '+NV.status;s.innerHTML=nvChipTxt();s.onclick=()=>{go('ajustes');setTimeout(()=>{const n=document.getElementById('nuvem');if(n)n.scrollIntoView({behavior:'smooth'})},80)};b.after(s)}nvIniciar()},400);
 
 
 /* ================== TEMA ================== */
