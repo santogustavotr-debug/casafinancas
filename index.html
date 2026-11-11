@@ -4797,21 +4797,25 @@ body.edu-on{overflow:hidden}
  .er-foot{flex-wrap:wrap}.er-foot .ebtn{width:100%}.er-foot>span{display:none}}
 `;document.head.appendChild(st)})();
 
-/* ================== VOZ DO MERLIN: fala (feminina ou masculina) e escuta ================== */
+/* ================== VOZ DO MERLIN: Thalita (feminina) e Antonio (masculina) ================== */
 const VZ_OK='speechSynthesis' in window&&'SpeechSynthesisUtterance' in window;
 const VZ_REC=window.SpeechRecognition||window.webkitSpeechRecognition||null;
+const VZ_ALVO={f:{nome:'Thalita',re:/thalita/i,az:'pt-BR-ThalitaMultilingualNeural'},m:{nome:'Antonio',re:/ant[oô]nio/i,az:'pt-BR-AntonioNeural'}};
+const VZ_SDK_URL='https://cdn.jsdelivr.net/npm/microsoft-cognitiveservices-speech-sdk@1.52.0/distrib/browser/microsoft.cognitiveservices.speech.sdk.bundle-min.js';
+const VZ_REGIOES=[['brazilsouth','Sul do Brasil (São Paulo)'],['eastus','Leste dos EUA'],['eastus2','Leste dos EUA 2'],['westus2','Oeste dos EUA 2'],['westeurope','Oeste da Europa']];
 let VOZES=[];
 function vozCarregar(){try{VOZES=VZ_OK?speechSynthesis.getVoices().filter(v=>/^pt/i.test(v.lang)):[]}catch(e){VOZES=[]}}
 if(VZ_OK){vozCarregar();try{speechSynthesis.addEventListener('voiceschanged',()=>{const n=VOZES.length;vozCarregar();if(n!==VOZES.length&&page==='aprender'&&!document.getElementById('edu-run'))render()})}catch(e){}}
-const VZ_F=/francisca|luciana|maria|joana|fernanda|vit[oó]ria|raquel|thalita|leila|yara|manuela|brenda|elza|giovanna|let[ií]cia|camila|helo[ií]sa|dalva|catarina|ines|in[eê]s|female|feminin|mulher/i;
-const VZ_M=/daniel|ant[oô]nio|felipe|f[aá]bio|j[uú]lio|nicolau|donato|val[eé]rio|humberto|ricardo|heitor|duarte|crist[oó]v[aã]o|\bmale\b|masculin|homem/i;
-function vozCfg(){const e=edu();return{voz:e.voz||'f',vozF:e.vozF||'',vozM:e.vozM||'',vel:e.vozVel||1,licao:e.vozLicao!==false,chat:e.vozChat!==false,avisos:e.vozAvisos!==false}}
-function vozEscolher(g){const c=vozCfg(),nome=g==='m'?c.vozM:c.vozF;let v=VOZES.find(x=>x.name===nome),pitch=g==='m'?.95:1.05;
-  if(!v){const br=VOZES.filter(x=>/pt[-_]br/i.test(x.lang)),pool=br.length?br:VOZES,re=g==='m'?VZ_M:VZ_F,anti=g==='m'?VZ_F:VZ_M;
-    v=pool.find(x=>re.test(x.name)&&!anti.test(x.name));
-    if(!v){v=g==='f'?(pool.find(x=>/google/i.test(x.name))||pool.find(x=>!VZ_M.test(x.name))||pool[0]):(pool.find(x=>!VZ_F.test(x.name)&&!/google/i.test(x.name))||pool[0]);pitch=g==='m'?.7:1.18}}
-  return[v||null,pitch]}
-const vozGenero=v=>VZ_M.test(v.name)&&!VZ_F.test(v.name)?'m':VZ_F.test(v.name)||/google/i.test(v.name)?'f':'?';
+function vozCfg(){const e=edu();return{voz:e.voz||'f',vel:e.vozVel||1,licao:e.vozLicao!==false,chat:e.vozChat!==false,avisos:e.vozAvisos!==false}}
+const azCfg=()=>{const a=C().azVoz||{};return{key:(a.key||'').trim(),regiao:a.regiao||'brazilsouth'}};
+const azOk=()=>!!azCfg().key;
+const vozNativa=g=>{const L=VOZES.filter(v=>VZ_ALVO[g].re.test(v.name)&&/pt[-_]br/i.test(v.lang));return L.find(v=>/multilingual/i.test(v.name))||L.find(v=>/natural|online/i.test(v.name))||L[0]||null};
+// como a voz vai tocar neste aparelho: nativa (Edge) > nuvem Microsoft (Azure) > substituta
+function vozModo(g){if(vozNativa(g))return'nativa';if(azOk())return'nuvem';return'substituta'}
+function vozSubstituta(g){const br=VOZES.filter(x=>/pt[-_]br/i.test(x.lang)),pool=br.length?br:VOZES;
+  const F=/francisca|luciana|maria|vit[oó]ria|google|female|feminin/i,M=/daniel|felipe|f[aá]bio|j[uú]lio|nicolau|donato|val[eé]rio|humberto|heitor|\bmale\b|masculin/i;
+  const v=g==='m'?(pool.find(x=>M.test(x.name))||pool.find(x=>!F.test(x.name))||pool[0]):(pool.find(x=>F.test(x.name)&&!M.test(x.name))||pool[0]);
+  return[v||null,v&&(g==='m'?M:F).test(v.name)?1:(g==='m'?.72:1.15)]}
 function vozTexto(h){let t=String(h||'').replace(/<(br|\/p|\/li|\/div|\/h\d|\/b)\s*\/?>/gi,m=>/b>/i.test(m)?' ':'. ').replace(/<button[\s\S]*?<\/button>/gi,' ').replace(/<[^>]+>/g,' ');
   const tx=document.createElement('textarea');tx.innerHTML=t;t=tx.value;
   t=t.replace(/R\$\s?(-?[\d.]+),(\d{2})/g,(m,a,b)=>a+(b==='00'?' reais':` reais e ${+b} centavos`)).replace(/R\$\s?([\d.]+)/g,'$1 reais')
@@ -4820,32 +4824,64 @@ function vozTexto(h){let t=String(h||'').replace(/<(br|\/p|\/li|\/div|\/h\d|\/b)
    .replace(/[✔✘•·|*#_>]/g,' ').replace(/\.\s*\./g,'.').replace(/\s+/g,' ').trim();return t}
 function vozPartes(t){const out=[];let cur='';t.split(/(?<=[.!?;:])\s+/).forEach(f=>{if((cur+' '+f).length>190&&cur){out.push(cur);cur=f}else cur=cur?cur+' '+f:f});if(cur)out.push(cur);return out}
 let VZ_SEQ=0;
-function falar(html,op){op=op||{};if(!VZ_OK)return false;const c=vozCfg();if(c.voz==='off'&&!op.forcar)return false;const g=op.genero||(c.voz==='off'?'f':c.voz);
-  try{speechSynthesis.cancel()}catch(e){}const t=vozTexto(html);if(!t)return false;const[v,pitch]=vozEscolher(g),seq=++VZ_SEQ,P=vozPartes(t);
-  P.forEach((p,i)=>{const u=new SpeechSynthesisUtterance(p);u.lang=v?v.lang:'pt-BR';try{if(v)u.voice=v}catch(e){}u.rate=c.vel;u.pitch=pitch;
-    if(i===0)u.onstart=()=>{if(seq===VZ_SEQ)document.body.classList.add('falando')};if(i===P.length-1)u.onend=u.onerror=()=>{if(seq===VZ_SEQ)document.body.classList.remove('falando')};try{speechSynthesis.speak(u)}catch(e){}});
-  setTimeout(()=>{try{if(speechSynthesis.paused)speechSynthesis.resume()}catch(e){}},300);return true}
-function calar(){VZ_SEQ++;try{if(VZ_OK)speechSynthesis.cancel()}catch(e){}document.body.classList.remove('falando')}
-function vozSet(k,v){const e=edu();e[k]=v;eduSave();if(k==='voz'||k==='vozF'||k==='vozM'){calar();if(v!=='off')setTimeout(()=>vozExemplo(),80)}vozIcones();if(page==='aprender'&&!document.getElementById('edu-run'))render()}
-function vozExemplo(){const e=edu(),p=perfilAtual(),g=e.voz==='off'?'f':e.voz;falar(`Olá${p?', '+esc(p.nome.split(' ')[0]):''}! Eu sou o Merlin. É assim que eu vou falar com você nas lições e no chat.`,{forcar:true,genero:g})}
+const vzOn=seq=>{if(seq===VZ_SEQ)document.body.classList.add('falando')},vzOff=seq=>{if(seq===VZ_SEQ)document.body.classList.remove('falando')};
+function falarNativo(t,v,pitch,vel,seq){if(!VZ_OK)return;const P=vozPartes(t);
+  P.forEach((p,i)=>{const u=new SpeechSynthesisUtterance(p);u.lang=v?v.lang:'pt-BR';try{if(v)u.voice=v}catch(e){}u.rate=vel;u.pitch=pitch;
+    if(i===0)u.onstart=()=>vzOn(seq);if(i===P.length-1)u.onend=u.onerror=()=>vzOff(seq);try{speechSynthesis.speak(u)}catch(e){}});
+  setTimeout(()=>{try{if(speechSynthesis.paused)speechSynthesis.resume()}catch(e){}},300)}
+/* ---- nuvem Microsoft (Azure Speech): mesma voz em qualquer aparelho ---- */
+const AZ_CACHE=new Map();let AZ_EL=null,AZ_SDK=null,AZ_ERRO='';
+function azEl(){if(!AZ_EL){AZ_EL=new Audio();AZ_EL.preload='auto'}return AZ_EL}
+// destrava o áudio no primeiro toque (exigência do iPhone/Android para tocar depois de uma busca na internet)
+['pointerdown','keydown','touchend'].forEach(ev=>document.addEventListener(ev,function unl(){try{const a=azEl();if(!a.src){a.src='data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=';a.play().then(()=>a.pause()).catch(()=>{})}}catch(e){}document.removeEventListener(ev,unl,true)},true));
+const xmlEsc=t=>t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+function azSsml(t,g,vel){return`<speak version='1.0' xml:lang='pt-BR'><voice name='${VZ_ALVO[g].az}'><prosody rate='${vel>=1?'+':''}${Math.round((vel-1)*100)}%'>${xmlEsc(t)}</prosody></voice></speak>`}
+function azCarregarSdk(){if(window.SpeechSDK)return Promise.resolve(window.SpeechSDK);if(AZ_SDK)return AZ_SDK;
+  AZ_SDK=new Promise((ok,err)=>{const s=document.createElement('script');s.src=VZ_SDK_URL;s.onload=()=>window.SpeechSDK?ok(window.SpeechSDK):err(new Error('SDK indisponível'));s.onerror=()=>{AZ_SDK=null;err(new Error('Sem internet para carregar a voz'))};document.head.appendChild(s)});return AZ_SDK}
+async function azSdkAudio(ssml){const a=azCfg(),S=await azCarregarSdk();const cfg=S.SpeechConfig.fromSubscription(a.key,a.regiao);cfg.speechSynthesisOutputFormat=S.SpeechSynthesisOutputFormat.Audio24Khz48KBitRateMonoMp3;
+  const sy=new S.SpeechSynthesizer(cfg,null);return new Promise((ok,err)=>sy.speakSsmlAsync(ssml,r=>{sy.close();if(r.reason===S.ResultReason.SynthesizingAudioCompleted)ok(new Blob([r.audioData],{type:'audio/mpeg'}));else err(new Error(r.errorDetails||'Falha na voz'))},e=>{sy.close();err(new Error(String(e)))}))}
+async function azAudio(t,g,vel){const k=g+'|'+vel+'|'+t;if(AZ_CACHE.has(k))return AZ_CACHE.get(k);const a=azCfg(),ssml=azSsml(t,g,vel);
+  const p=(async()=>{let blob;try{const r=await fetch(`https://${a.regiao}.tts.speech.microsoft.com/cognitiveservices/v1`,{method:'POST',headers:{'Ocp-Apim-Subscription-Key':a.key,'Content-Type':'application/ssml+xml','X-Microsoft-OutputFormat':'audio-24khz-48kbitrate-mono-mp3'},body:ssml});
+      if(r.status===401||r.status===403)throw Object.assign(new Error('Chave ou região do Azure inválida'),{fatal:1});if(r.status===429)throw Object.assign(new Error('Limite do plano gratuito do Azure atingido'),{fatal:1});if(r.status===400&&g==='f'&&/Multilingual/.test(ssml)){const r2=await fetch(`https://${a.regiao}.tts.speech.microsoft.com/cognitiveservices/v1`,{method:'POST',headers:{'Ocp-Apim-Subscription-Key':a.key,'Content-Type':'application/ssml+xml','X-Microsoft-OutputFormat':'audio-24khz-48kbitrate-mono-mp3'},body:ssml.replace('ThalitaMultilingualNeural','ThalitaNeural')});if(r2.ok){blob=await r2.blob();return URL.createObjectURL(blob)}}if(!r.ok)throw new Error('HTTP '+r.status);blob=await r.blob()}
+    catch(e){if(e.fatal)throw e;blob=await azSdkAudio(ssml)}
+    return URL.createObjectURL(blob)})();
+  AZ_CACHE.set(k,p);p.catch(()=>AZ_CACHE.delete(k));if(AZ_CACHE.size>80){const f=AZ_CACHE.keys().next().value;AZ_CACHE.delete(f)}return p}
+function azPrefetch(html){const c=vozCfg();if(c.voz==='off'||vozModo(c.voz)!=='nuvem')return;const t=vozTexto(html);if(t)azAudio(t,c.voz,c.vel).catch(()=>{})}
+async function falarNuvem(t,g,vel,seq){try{const url=await azAudio(t,g,vel);if(seq!==VZ_SEQ)return;const a=azEl();a.onplay=()=>vzOn(seq);a.onended=a.onerror=()=>vzOff(seq);a.src=url;await a.play();AZ_ERRO=''}
+  catch(e){AZ_ERRO=e.message||String(e);if(seq!==VZ_SEQ)return;if(/inválida|Limite/.test(AZ_ERRO))toast('Voz do Merlin: '+AZ_ERRO);if(e.name==='NotAllowedError')return;const[v,p]=vozSubstituta(g);falarNativo(t,v,p,vel,seq)}}
+function falar(html,op){op=op||{};const c=vozCfg();if(c.voz==='off'&&!op.forcar)return false;const g=op.genero||(c.voz==='off'?'f':c.voz);
+  calar();const t=vozTexto(html);if(!t)return false;const seq=VZ_SEQ,modo=vozModo(g);
+  if(modo==='nativa')falarNativo(t,vozNativa(g),1,c.vel,seq);else if(modo==='nuvem')falarNuvem(t,g,c.vel,seq);else{const[v,p]=vozSubstituta(g);falarNativo(t,v,p,c.vel,seq)}return true}
+function calar(){VZ_SEQ++;try{if(VZ_OK)speechSynthesis.cancel()}catch(e){}try{if(AZ_EL){AZ_EL.pause()}}catch(e){}document.body.classList.remove('falando')}
+function vozSet(k,v){const e=edu();e[k]=v;eduSave();if(k==='voz'){calar();if(v!=='off')setTimeout(()=>vozExemplo(),80)}vozIcones();if(page==='aprender'&&!document.getElementById('edu-run'))render()}
+function vozExemplo(){const e=edu(),p=perfilAtual(),g=e.voz==='off'?'f':e.voz;falar(`Olá${p?', '+esc(p.nome.split(' ')[0]):''}! Eu sou o Merlin, com a voz ${g==='m'?'do Antonio':'da Thalita'}. É assim que eu vou falar com você nas lições e no chat.`,{forcar:true,genero:g})}
+function azSalvar(){if(!ehAdmin())return toast('Só o administrador configura a voz na nuvem');const k=document.getElementById('az-key').value.trim(),r=document.getElementById('az-reg').value;
+  C().azVoz={key:k,regiao:r};AZ_CACHE.clear();AZ_ERRO='';save();render();if(k){toast('Voz na nuvem salva — testando…');setTimeout(()=>vozExemplo(),150)}else toast('Voz na nuvem desligada')}
 const VZ_SVG=(on)=>`<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9z" fill="currentColor"/>${on?'<path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12"/>':'<path d="m17 9 5 6M22 9l-5 6"/>'}</svg>`;
 const MIC_SVG='<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3" fill="currentColor"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>';
 
 /* ---- painel de configuração (Escola do Merlin) ---- */
-function vozPainel(){const c=vozCfg();const fem=VOZES.filter(v=>vozGenero(v)!=='m'),mas=VOZES.filter(v=>vozGenero(v)!=='f');
-  const sel=(k,lista,val)=>lista.length>1?`<label class="vz-l">${k==='vozF'?'Voz feminina':'Voz masculina'}<select class="f" onchange="vozSet('${k}',this.value)"><option value="">Automática</option>${lista.map(v=>`<option ${v.name===val?'selected':''} value="${esc(v.name)}">${esc(v.name.replace(/^(Microsoft|Google)\s*/,''))}${/pt[-_]PT/i.test(v.lang)?' (Portugal)':''}</option>`).join('')}</select></label>`:'';
+function vozPainel(){const c=vozCfg(),a=azCfg(),g=c.voz==='off'?null:c.voz,modo=g?vozModo(g):null,N=g?VZ_ALVO[g].nome:'';
+  const st=!g?'':modo==='nativa'?`<p class="vz-st ok">${eIco('check',14)} ${N} tocando direto neste navegador (voz da Microsoft instalada).</p>`
+   :modo==='nuvem'?`<p class="vz-st ok">${eIco('check',14)} ${N} pela nuvem da Microsoft — mesma voz no PC e no celular.${AZ_ERRO?`<br><span class="vz-err">Último erro: ${esc(AZ_ERRO)}</span>`:''}</p>`
+   :`<p class="vz-st al">${eIco('raio',14)} A voz ${g==='m'?'do Antonio':'da Thalita'} não está instalada neste aparelho (ela vem só no Microsoft Edge do computador). ${ehAdmin()?'Configure a voz na nuvem abaixo para ouvi-la no celular e em qualquer navegador.':'Peça ao administrador para ativar a voz na nuvem.'} Enquanto isso, uso uma voz parecida.</p>`;
   return`<section class="panel vz-p"><h2 class="ed-h2">Voz do Merlin <span class="vz-onda" aria-hidden="true"><i></i><i></i><i></i></span></h2>
-   ${VZ_OK?`<p class="note">O Merlin lê as lições, responde no chat e dá os avisos em voz alta.</p>
-   <div class="ed-chips">${[['f','Feminina'],['m','Masculina'],['off','Sem voz']].map(([v,l])=>`<button class="${c.voz===v?'on':''}" onclick="vozSet('voz','${v}')">${l}</button>`).join('')}</div>
-   ${c.voz!=='off'?`${c.voz==='f'?sel('vozF',fem,c.vozF):sel('vozM',mas,c.vozM)}
+   <p class="note">O Merlin lê as lições, responde no chat e dá os avisos em voz alta.</p>
+   <div class="ed-chips">${[['f','Feminina · Thalita'],['m','Masculina · Antonio'],['off','Sem voz']].map(([v,l])=>`<button class="${c.voz===v?'on':''}" onclick="vozSet('voz','${v}')">${l}</button>`).join('')}</div>
+   ${g?`${st}
    <label class="vz-l">Velocidade <span>${c.vel.toLocaleString('pt-BR')}×</span><input type="range" min="0.7" max="1.5" step="0.1" value="${c.vel}" onchange="vozSet('vozVel',+this.value)"></label>
    <label class="vz-c"><input type="checkbox" ${c.licao?'checked':''} onchange="vozSet('vozLicao',this.checked)"> Ler as lições em voz alta</label>
    <label class="vz-c"><input type="checkbox" ${c.chat?'checked':''} onchange="vozSet('vozChat',this.checked)"> Falar as respostas no chat</label>
    <label class="vz-c"><input type="checkbox" ${c.avisos?'checked':''} onchange="vozSet('vozAvisos',this.checked)"> Falar os avisos e cobranças</label>
    <button class="btn sm" onclick="vozExemplo()">${VZ_SVG(1)} Ouvir o Merlin</button>`:''}
-   ${!VOZES.length?'<p class="note vz-aviso">Nenhuma voz em português foi encontrada neste aparelho. No celular, instale a voz "Português (Brasil)" nas configurações de texto para fala; no computador, o Chrome e o Edge já trazem vozes prontas.</p>':''}
-   ${VOZES.length&&!mas.some(v=>vozGenero(v)==='m')&&c.voz==='m'?'<p class="note vz-aviso">Este aparelho não tem voz masculina em português; o Merlin usa a voz disponível com tom mais grave.</p>':''}`
-   :'<p class="note">Este navegador não tem síntese de voz. Use Chrome, Edge ou Safari atualizados.</p>'}</section>`}
+   ${ehAdmin()?`<details class="vz-az" ${a.key||modo==='substituta'?'open':''}><summary>Voz na nuvem (PC e celular) ${a.key?'<b class="vz-tag">ativa</b>':''}</summary>
+    <p class="note">A Thalita e o Antonio são vozes da Microsoft. Para tocarem iguais em qualquer aparelho, o sistema usa o serviço de voz do Azure. O plano gratuito (F0) cobre 500 mil caracteres por mês — sobra para as lições e o chat da casa.</p>
+    <ol class="vz-passos"><li>Entre em <b>portal.azure.com</b> com sua conta Microsoft (crie uma conta gratuita se não tiver).</li><li>Clique em <b>Criar um recurso</b>, busque <b>Fala</b> (Speech) e clique em <b>Criar</b>.</li><li>Escolha a região <b>Brazil South</b>, dê um nome e selecione o tipo de preço <b>Free F0</b>. Clique em <b>Revisar + criar</b> e depois em <b>Criar</b>.</li><li>Abra o recurso, vá em <b>Chaves e Ponto de Extremidade</b> e copie a <b>CHAVE 1</b>.</li><li>Cole abaixo, confira a região e clique em <b>Salvar e testar</b>.</li></ol>
+    <label class="vz-l">Chave do Azure Speech<input id="az-key" class="f" type="password" autocomplete="off" value="${esc(a.key)}" placeholder="Cole a CHAVE 1"></label>
+    <label class="vz-l">Região<select id="az-reg" class="f">${VZ_REGIOES.map(([v,l])=>`<option value="${v}" ${a.regiao===v?'selected':''}>${l}</option>`).join('')}</select></label>
+    <div class="ed-chips" style="margin-top:10px"><button class="on" onclick="azSalvar()">Salvar e testar</button>${a.key?`<button onclick="document.getElementById('az-key').value='';azSalvar()">Desligar</button>`:''}</div>
+    <p class="note" style="margin-top:8px">A chave fica salva nos dados da casa e vale para todos os perfis e aparelhos. No Microsoft Edge do computador a voz toca direto, sem gastar a cota.</p></details>`:''}
+  </section>`}
 
 /* ---- lições: lê cada passo e mostra controles ---- */
 let VZ_K='';
@@ -4854,7 +4890,7 @@ function vozPasso(){if(!LR)return;const el=document.getElementById('edu-run');if
   const mer=el.querySelector('.er-merlin');if(mer&&!mer.querySelector('.er-rep')){const b=document.createElement('button');b.className='er-rep';b.setAttribute('aria-label','Ouvir de novo');b.innerHTML=VZ_SVG(1);b.onclick=()=>falar(mer.querySelector('.er-bal').innerHTML,{forcar:true});mer.querySelector('.er-bal').appendChild(b)}
   const st=LR.S[LR.i];if(!st||c.voz==='off'||!c.licao)return;const k=(LR.lid||LR.modo)+':'+LR.i+':'+LR.fase+':'+LR.S.length;if(k===VZ_K)return;VZ_K=k;
   let t='';if(st.k==='card'||st.k==='dica'){const b=el.querySelector('.er-bal');t=(st.k==='dica'?'Dica para você. ':'')+(b?b.innerHTML:'')}else if(LR.fase==='res'){const f=el.querySelector('.er-fb div');t=f?f.innerHTML:''}else t=st.q.p;
-  falar(t)}
+  falar(t);const nx=LR.S[LR.i+1];if(nx&&nx.k==='card')azPrefetch(nx.t);else if(nx&&nx.k==='q')azPrefetch(nx.q.p)}
 {const _r=eduRun;eduRun=function(){_r.apply(this,arguments);try{vozPasso()}catch(e){}}}
 {const _f=eduFim;eduFim=function(){const lr=LR;_f.apply(this,arguments);try{const c=vozCfg();if(c.voz==='off'||!c.licao)return;const el=document.querySelector('#edu-run .er-end');if(!el)return;
   const h=el.querySelector('h2'),xp=el.querySelector('.es.xp b'),fo=el.querySelector('.er-fogo b'),tp=el.querySelector('h2+p');
@@ -4903,7 +4939,8 @@ body.falando .er-av,body.falando .ec-av,body.falando .m-av img,body.falando .m-m
 .m-mic.on{background:#ff4b4b;border-color:#ff4b4b;color:#fff;animation:vzPulse 1s ease-in-out infinite}@keyframes vzPulse{50%{box-shadow:0 0 0 6px rgba(255,75,75,.25)}}
 .vz-p .vz-l{display:grid;gap:4px;font-size:13px;color:var(--ink2);margin-top:10px}.vz-p .vz-l span{font-weight:700;color:var(--ink)}.vz-p .vz-l select{width:100%}.vz-p input[type=range]{width:100%;accent-color:#1cb0f6}
 .vz-p .vz-c{display:flex;gap:8px;align-items:center;font-size:13.5px;margin-top:8px;cursor:pointer}.vz-p .vz-c input{accent-color:#58cc02;width:17px;height:17px}
-.vz-p .btn{margin-top:12px;display:inline-flex;gap:6px;align-items:center}.vz-aviso{margin-top:10px;padding:8px 10px;border-radius:10px;background:color-mix(in srgb,#ff9600 12%,var(--paper))}
+.vz-p .btn{margin-top:12px;display:inline-flex;gap:6px;align-items:center}.vz-st{margin:10px 0 0;padding:8px 10px;border-radius:10px;font-size:13px;display:flex;gap:6px;align-items:flex-start}.vz-st svg{margin-top:2px}.vz-st.ok{background:color-mix(in srgb,#58cc02 12%,var(--paper));color:var(--ink)}.vz-st.ok svg{color:#58cc02}.vz-st.al{background:color-mix(in srgb,#ff9600 13%,var(--paper))}.vz-st.al svg{color:#ff9600}.vz-err{color:#e03b3b}
+.vz-az{margin-top:14px;border-top:1px solid var(--line);padding-top:10px}.vz-az summary{cursor:pointer;font-weight:700;font-size:14px}.vz-tag{background:#58cc02;color:#fff;border-radius:8px;padding:1px 7px;font-size:11px;margin-left:4px}.vz-passos{margin:8px 0;padding-left:20px;font-size:13px;color:var(--ink2);display:grid;gap:4px}
 .vz-onda{display:inline-flex;gap:2px;align-items:center;height:14px;margin-left:6px;vertical-align:middle}.vz-onda i{width:3px;height:5px;border-radius:2px;background:#1cb0f6;opacity:.4}
 body.falando .vz-onda i{opacity:1;animation:vzOnda .5s ease-in-out infinite alternate}body.falando .vz-onda i:nth-child(2){animation-delay:.15s}body.falando .vz-onda i:nth-child(3){animation-delay:.3s}
 @keyframes vzOnda{to{height:14px}}
