@@ -16,6 +16,5 @@ Levar seus dados:
 
 Atualizar depois: substitua o index.html no repositório. O app pega a versão nova sozinho.
 
-Este pacote NÃO leva seus extratos nem holerites. Mas o código traz os valores padrão
-(salários, contas fixas, histórico do Registrato). Repositório público = qualquer pessoa com
-o link pode ver esses padrões.
+Este pacote não tem nenhum dado pessoal: começa vazio e pede para criar o perfil de administrador.
+Seus dados entram pelo Backup › Restaurar (arquivo casafinance-dados-pessoais.json) ou pelo banco de dados na nuvem.
