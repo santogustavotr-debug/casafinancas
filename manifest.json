@@ -29,6 +29,16 @@
   ],
   "shortcuts": [
     {
+      "name": "Fotografar nota",
+      "url": "./?nota=1",
+      "icons": [
+        {
+          "src": "icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
       "name": "Mago Merlin",
       "url": "./?merlin=1",
       "icons": [
@@ -48,5 +58,29 @@
         }
       ]
     }
-  ]
+  ],
+  "share_target": {
+    "action": "./?compartilhar=1",
+    "method": "POST",
+    "enctype": "multipart/form-data",
+    "params": {
+      "title": "title",
+      "text": "text",
+      "url": "url",
+      "files": [
+        {
+          "name": "arquivos",
+          "accept": [
+            "application/pdf",
+            ".pdf",
+            "image/*",
+            ".jpg",
+            ".jpeg",
+            ".png",
+            ".webp"
+          ]
+        }
+      ]
+    }
+  }
 }

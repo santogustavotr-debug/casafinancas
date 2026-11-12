@@ -15,6 +15,13 @@ Levar seus dados:
 7. No app instalado: Ajustes > Backup > Restaurar > escolha o arquivo.
 
 Atualizar depois: substitua o index.html no repositório. O app pega a versão nova sozinho.
+Nesta versão também mudaram o manifest.json e o sw.js: envie os dois junto com o index.html.
+
+Compartilhar comprovantes e notas com o CasaFinance (Android):
+- Depois de atualizar os arquivos, desinstale e instale o app de novo pelo Chrome (menu ⋮ > Instalar app).
+- No app do banco: Compartilhar > Documento (PDF) ou Imagem > escolha CasaFinance na lista.
+- Segurando o ícone do app aparece o atalho "Fotografar nota".
+- No iPhone o Safari não permite que apps da web recebam arquivos compartilhados: use "Enviar comprovante" dentro do app.
 
 Este pacote não tem nenhum dado pessoal: começa vazio e pede para criar o perfil de administrador.
 Seus dados entram pelo Backup › Restaurar (arquivo casafinance-dados-pessoais.json) ou pelo banco de dados na nuvem.

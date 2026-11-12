@@ -4946,6 +4946,216 @@ body.falando .vz-onda i{opacity:1;animation:vzOnda .5s ease-in-out infinite alte
 @keyframes vzOnda{to{height:14px}}
 `;document.head.appendChild(st)})();
 
+/* ================== LANÇAR POR FOTO: nota fiscal (NFC-e), comprovante de Pix/transferência/boleto ================== */
+const podeLancar=()=>['admin','extrato'].includes(papel());
+const cpSalvar=comPerm(function(){save()});
+let CP_FILA=[],CP_PEND=null,CP_WORKER=null;
+
+/* ---------- utilidades ---------- */
+const cpNum=s=>brNum(String(s).replace(/\s/g,''));
+const cpTitulo=s=>s.toLowerCase().replace(/(^|\s|&|\/|-)([a-zà-ú])/g,(m,a,b)=>a+b.toUpperCase()).replace(/\b(De|Da|Do|Dos|Das|E)\b/g,w=>w.toLowerCase()).replace(/^./,c=>c.toUpperCase());
+function cnpjOk(c){c=String(c).replace(/\D/g,'');if(c.length!==14||/^(\d)\1+$/.test(c))return false;const dv=n=>{let s=0,p=n-7;for(let i=0;i<n;i++){s+=+c[i]*p--;if(p<2)p=9}const r=s%11;return r<2?0:11-r};return dv(12)===+c[12]&&dv(13)===+c[13]}
+function chaveOk(k){if(!/^\d{44}$/.test(k))return false;let s=0,p=2;for(let i=42;i>=0;i--){s+=+k[i]*p;p=p===9?2:p+1}let d=11-s%11;if(d>=10)d=0;return d===+k[43]}
+const cpFmtCnpj=c=>c.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/,'$1.$2.$3/$4-$5');
+const MESES_TXT={jan:1,fev:2,mar:3,abr:4,mai:5,jun:6,jul:7,ago:8,set:9,out:10,nov:11,dez:12};
+function cpData(t){let m=t.match(/(\d{2})\/(\d{2})\/(\d{4}|\d{2})(?:[^\d\n]{0,8}(\d{2}):(\d{2}))?/);
+  if(m){let y=+m[3];if(y<100)y+=2000;if(+m[1]>=1&&+m[1]<=31&&+m[2]>=1&&+m[2]<=12&&y>=2015&&y<=2040)return{data:isoDate(+m[1],+m[2],y),hora:m[4]?m[4]+':'+m[5]:''}}
+  m=t.match(/(\d{1,2})\s*(?:de\s+)?(jan|fev|mar|abr|mai|jun|jul|ago|set|out|nov|dez)[a-zç]*\.?\s*(?:de\s+)?(\d{4})(?:[^\d\n]{0,8}(\d{2}):(\d{2}))?/i);
+  if(m)return{data:isoDate(+m[1],MESES_TXT[m[2].toLowerCase()],+m[3]),hora:m[4]?m[4]+':'+m[5]:''};return{data:'',hora:''}}
+function cpPessoaDe(nome){const n=normTxt(nome).replace(/[^a-z ]/g,' ').replace(/\s+/g,' ').trim();if(n.length<3)return null;const tk=new Set(n.split(' '));
+  for(const k of ['P1','P2']){const nomes=[...((C().pessoas||{})[k]||[]),k==='P1'?C().nome1:C().nome2,...perfis().filter(p=>p.pessoa===k).map(p=>p.nome)].filter(Boolean).map(x=>normTxt(x).replace(/[^a-z ]/g,' ').trim()).filter(x=>x&&!/^pessoa \d$/.test(x));
+    if(nomes.some(x=>{const xs=x.split(/\s+/).filter(w=>w.length>=3);return xs.length&&xs.every(w=>tk.has(w))}))return k}return null}
+
+/* ---------- leitura da NOTA FISCAL (NFC-e / cupom) ---------- */
+const CP_LOJA_RE=/(supermerc|mercad|atacad|hiper|drogar|farmac|padari|panific|restaur|lanchon|posto|comerci|magazin|ltda|s\/?a\b|s\.a|eireli|\bepp\b|\bme\b|varej|distrib|alimento|super\b|loja)/i;
+function cpLoja(L,cnpj){if(cnpj&&db.lojas&&db.lojas[cnpj])return db.lojas[cnpj].nome;
+  const ini=L.slice(0,8).filter(l=>CP_LOJA_RE.test(l)&&!/cnpj|cpf|\bie\b|inscri|rua\b|\bav\b|avenida|estrada|rodovia|fone|cep|documento|auxiliar|consumidor|eletr/i.test(l));
+  let s=ini[0]||'';if(!s){const i=L.findIndex(l=>/cnpj/i.test(l));s=(L[i+1]||L[0]||'')}
+  s=s.replace(/\s-\s*\d+.*$/,'').replace(/\b(s\/?a|s\.a\.?|ltda\.?|eireli|epp|me)\b.*$/i,'').replace(/[^A-Za-zÀ-ú&' ]/g,' ').split(/\s+/).filter(w=>w==='&'||w.length>2||/^(de|da|do|e)$/i.test(w)).join(' ').trim();
+  return s?cpTitulo(s):'Compra'}
+function cpCupom(t,L){const r={tipo:'cupom',avisos:[]};
+  // chave de acesso (44 dígitos) e CNPJ
+  r.chave='';(t.replace(/[^\d\n]/g,' ').match(/\d[\d ]{45,90}\d/g)||[]).map(x=>x.replace(/\D/g,'')).forEach(x=>{for(let i=0;i+44<=x.length&&!r.chave;i++){const k=x.slice(i,i+44);if(chaveOk(k)&&/^(1[1-7]|2[1-9]|3[1-5]|4[1-3]|5[0-3])/.test(k))r.chave=k}});
+  const cn=(t.match(/\d{2}[.,]?\s?\d{3}[.,]?\s?\d{3}\s?\/?\s?\d{4}\s?-?\s?\d{2}/g)||[]).map(x=>x.replace(/\D/g,'')).filter(cnpjOk);
+  r.cnpj=r.chave?r.chave.slice(6,20):(cn[0]||'');
+  const d=cpData(t);r.data=d.data;r.hora=d.hora;
+  if(r.chave&&!r.data){r.data=`20${r.chave.slice(2,4)}-${r.chave.slice(4,6)}-01`;r.avisos.push('Confira o dia da compra')}
+  const pegar=re=>{const m=t.match(re);return m?cpNum(m[1]):null};
+  r.valor=pegar(/valor\s*(?:a|à|á)?\s*pagar[^\d\n]{0,12}([\d.]+,\d{2})/i)??pegar(/valor\s*total[^\d\n]{0,12}([\d.]+,\d{2})/i)??pegar(/\btotal\s*(?:r\$|rs)[^\d\n]{0,6}([\d.]+,\d{2})/i)
+    ??pegar(/^\s*(?:cart[aã]o|dinheiro|pix|cr[eé]dito|d[eé]bito|vale|voucher)[^\d\n]{0,25}([\d.]+,\d{2})\s*$/im)??pegar(/\bvalor\s*:[^\d\n]{0,8}([\d.]+,\d{2})/i);
+  const tl=normTxt(t);
+  r.forma=/voucher|ticket|alelo|sodexo|pluxee|vale.?(refei|alimen)|\bvr\b|\bva\b|flash|caju|ben ?visa|swile|vr benef|green ?card/.test(tl)?'VR/VA':/cr[eé]dito/.test(tl)?'Cartão de crédito':/dinheiro/.test(tl)&&!/d[eé]bito|cart[aã]o/.test(tl)?'Dinheiro':'Pix/Débito';
+  const sv=t.match(/saldo\s*(?:disp\w*|dispon\w*|atual)?\s*:?[^\d\n]{0,8}([\d.]+,\d{2})/i);if(sv)r.saldoVale=cpNum(sv[1]);
+  r.desc=cpLoja(L,r.cnpj);
+  const lj=r.cnpj&&db.lojas&&db.lojas[r.cnpj];
+  r.cat=lj&&lj.cat?lj.cat:(()=>{const g=guessCat(normTxt(r.desc+' '+L.slice(0,6).join(' ')));return g!=='Outros'?g:/supermerc|mercad|atacad|hortifr|acougue|sacola/.test(tl)?'Mercado':'Outros'})();
+  // itens (melhor esforço)
+  r.itens=[];L.forEach((l,i)=>{const m=l.match(/^[\dA-Z]{6,14}\s+(.{3,}?)\s+([\d.]+,\d{2})\s*$/);if(m&&/[a-z]{3}/i.test(m[1])&&!/total|pagar|pago|troco|desconto|tribut|saldo|valor/i.test(l)){const ds=m[1].replace(/\s+\d+[.,]?\d*\s*(un|kg|lt|l|pc|cx|und|g|ml)\b.*$/i,'').replace(/\s+[\d.,]+$/,'').trim();r.itens.push({d:ds.slice(0,60),v:cpNum(m[2])})}
+    else{const m2=l.match(/^[\dA-Z]{6,14}\s+([A-Za-zÀ-ú].{3,})$/);const nx=L[i+1]||'';const m3=nx.match(/^\s*\d+[.,]?\d*\s*[A-Z]{1,3}\s+[\d.]+,\d{2}\s+([\d.]+,\d{2})\s*$/i);if(m2&&m3)r.itens.push({d:m2[1].trim().slice(0,60),v:cpNum(m3[1])})}});
+  r.cls='gasto';r.pessoa=minhaPessoa();
+  if(!r.valor)r.avisos.push('Não encontrei o valor total — digite abaixo');if(!r.data)r.avisos.push('Não encontrei a data — confira');
+  return r}
+
+/* ---------- leitura de COMPROVANTE (Pix, transferência, boleto) ---------- */
+const CP_SEC_DE=/^(de|origem|pagador|dados do pagador|quem pagou|conta de origem|remetente|dados de quem pagou|dados da origem)\s*:?$/i;
+const CP_SEC_PARA=/^(para|destino|recebedor|favorecido|benefici[aá]rio|destinat[aá]rio|dados do recebedor|quem recebeu|conta de destino|dados de quem recebeu|dados do favorecido|dados do destino)\s*:?$/i;
+const CP_LABEL=/^(cpf|cnpj|institui|banco|ag[eê]ncia|conta|chave|tipo|ispb|n[uú]mero|id\b|autentica|data|valor|realizad)/i;
+function cpSecao(L,re){const out={nome:'',inst:''};const i=L.findIndex(l=>re.test(l.trim()));
+  if(i>=0){for(let j=i+1;j<Math.min(L.length,i+7);j++){const l=L[j].trim();if(CP_SEC_DE.test(l)||CP_SEC_PARA.test(l))break;if(/^(i?nstitui\w*|banco)\s*:?$/i.test(l)){if(!out.inst&&L[j+1])out.inst=L[j+1].trim();j++;continue}if(/^(nome|raz[aã]o social|cpf|cnpj|conta|ag[eê]ncia|chave( pix)?|tipo de conta)\s*:?$/i.test(l))continue;const nm=l.match(/^nome\s*:?\s*(.+)$/i);
+      if(!out.nome&&(nm||(!CP_LABEL.test(l)&&/[a-zà-ú]{3}/i.test(l)&&!/\d{3}/.test(l))))out.nome=(nm?nm[1]:l).trim();const ins=l.match(/^(?:i?nstitui[cç][aã]o|banco)\s*:?\s*(.+)$/i);if(ins&&!out.inst)out.inst=ins[1].trim()}}
+  else{const m=L.join('\n').match(new RegExp('^(?:'+re.source.slice(2,re.source.indexOf(')'))+')\\s*:\\s*(.+)$','im'));if(m)out.nome=m[m.length-1].trim()}
+  out.nome=out.nome.replace(/\s+(cpf|cnpj).*$/i,'').slice(0,60);out.inst=out.inst.replace(/\s*-\s*institui.*$/i,'').replace(/\s+s[.,]?a\.?$/i,'').slice(0,40);return out}
+const cpBancoCurto=s=>{const n=normTxt(s);return /nu pag|nubank/.test(n)?'Nubank':/itau/.test(n)?'Itaú':/bradesco/.test(n)?'Bradesco':/santander/.test(n)?'Santander':/caixa/.test(n)?'Caixa':/banco do brasil|\bbb\b/.test(n)?'Banco do Brasil':/inter\b/.test(n)?'Inter':/c6/.test(n)?'C6':/picpay/.test(n)?'PicPay':/mercado pago/.test(n)?'Mercado Pago':s?cpTitulo(s.split(/\s+/).slice(0,2).join(' ')):''};
+function cpComprovante(t,L){const r={tipo:'pix',avisos:[]};const tl=normTxt(t);
+  r.boleto=/boleto|codigo de barras|linha digitavel/.test(tl);r.tipoTxt=r.boleto?'Comprovante de boleto':/\bpix\b/.test(tl)?'Comprovante de Pix':/\bted\b|transfer/.test(tl)?'Comprovante de transferência':'Comprovante de pagamento';
+  const mv=t.match(/R\s?\$\s*([\d.]+,\d{2})/)||t.match(/valor[^\d\n]{0,20}([\d.]+,\d{2})/i);r.valor=mv?cpNum(mv[1]):null;
+  const d=cpData(t);r.data=d.data;r.hora=d.hora;
+  const e2=t.replace(/[\s\]\[|()]/g,'').match(/E\d{20}[A-Za-z0-9]{11}/);r.e2e=e2?e2[0].toUpperCase():'';
+  r.de=cpSecao(L,CP_SEC_DE);r.para=cpSecao(L,CP_SEC_PARA);
+  const pd=cpPessoaDe(r.de.nome),pp=cpPessoaDe(r.para.nome),mesmo=r.de.nome&&normTxt(r.de.nome)===normTxt(r.para.nome);
+  const bd=cpBancoCurto(r.de.inst),bp=cpBancoCurto(r.para.inst);
+  if(mesmo||(pd&&pd===pp)){r.cls='interno';r.pessoa=pd||pp||minhaPessoa();r.desc=`Pix entre suas contas${bd||bp?` (${bd||'?'} → ${bp||'?'})`:''}`;r.cat='Outros'}
+  else if(pd&&pp){r.cls='casal';r.pessoa=pd;r.desc=`Pix para ${cpTitulo(r.para.nome.split(' ')[0])}`;r.cat='Outros'}
+  else if(!pd&&pp){r.cls='entrada';r.pessoa=pp;r.desc=`Pix recebido de ${cpTitulo(r.de.nome||'?')}`;r.cat='Outros'}
+  else{r.cls='gasto';r.pessoa=pd||minhaPessoa();const nm=r.para.nome?cpTitulo(r.para.nome):'';r.desc=(r.boleto?'Boleto':'Pix')+(nm?' · '+nm:'');const g=guessCat(normTxt(r.para.nome));r.cat=g}
+  r.forma=r.boleto?'Boleto':'Pix/Débito';r.banco=bd||'Comprovante';
+  if(!r.valor)r.avisos.push('Não encontrei o valor — digite abaixo');if(!r.data)r.avisos.push('Não encontrei a data — confira');
+  return r}
+function cpInterpretar(texto){const t=String(texto||'').replace(/\r/g,''),L=t.split('\n').map(l=>l.replace(/\s+/g,' ').trim()).filter(Boolean),tl=normTxt(t);
+  if(/documento auxiliar|nfc-?e|nota fiscal|cupom fiscal|cnpj do emitente|valor a pagar|qtde\.? total|codigo descricao|sat n/.test(tl))return cpCupom(t,L);
+  return cpComprovante(t,L)}
+
+/* ---------- arquivos, câmera e OCR ---------- */
+async function cpOCR(canvas,st){await carregarOCR(st);
+  if(!CP_WORKER)CP_WORKER=await Tesseract.createWorker('por',1,{workerPath:'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/worker.min.js',corePath:'https://cdn.jsdelivr.net/npm/tesseract.js-core@5.1.1',langPath:'https://cdn.jsdelivr.net/npm/@tesseract.js-data/por@1.0.0/4.0.0_best_int',logger:m=>{if(m.status==='recognizing text')st(`Lendo o texto… ${Math.round(m.progress*100)}%`)}});
+  await CP_WORKER.setParameters({tessedit_pageseg_mode:'6',preserve_interword_spaces:'0'});const{data}=await CP_WORKER.recognize(canvas);return data.text}
+function cpPreparar(img,suave){const w0=img.naturalWidth||img.videoWidth||img.width,h0=img.naturalHeight||img.videoHeight||img.height;const W=suave?Math.min(2200,Math.max(1400,w0*1.6)):Math.max(900,Math.min(1600,w0*1.4)),H=Math.round(h0*W/w0);
+  const c=document.createElement('canvas');c.width=W;c.height=H;const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,W,H);x.filter=suave?'grayscale(1) contrast(1.15)':'grayscale(1) contrast(1.6) brightness(1.08)';x.drawImage(img,0,0,W,H);return c}
+function cpMiniatura(img){const w0=img.naturalWidth||img.videoWidth||img.width,h0=img.naturalHeight||img.videoHeight||img.height,W=240,H=Math.round(h0*W/w0);const c=document.createElement('canvas');c.width=W;c.height=Math.min(H,480);c.getContext('2d').drawImage(img,0,0,W,H);return c.toDataURL('image/jpeg',.7)}
+async function cpQR(src){try{if(!('BarcodeDetector' in window))return'';const bd=new BarcodeDetector({formats:['qr_code']});const r=await bd.detect(src);return r[0]?r[0].rawValue:''}catch(e){return''}}
+async function cpImagemDeArquivo(f){const url=URL.createObjectURL(f);const im=new Image();im.src=url;await im.decode();return im}
+async function cpLerArquivo(f,st){let texto='',thumb='',qr='';
+  if(/pdf/i.test(f.type)||/\.pdf$/i.test(f.name)){const buf=new Uint8Array(await f.arrayBuffer());const L=await pdfLines(buf.slice());texto=L.join('\n');
+    if(texto.replace(/\s/g,'').length<40){st('PDF escaneado — lendo a imagem…');const cvs=await pdfCanvases(buf);for(const c of cvs){texto+='\n'+await cpOCR(cpPreparar(c),st)}if(cvs[0])thumb=cpMiniatura(cvs[0])}
+    else{try{const cvs=await pdfCanvases(buf);if(cvs[0]){thumb=cpMiniatura(cvs[0]);qr=await cpQR(cvs[0])}}catch(e){}}}
+  else if(/^image\//i.test(f.type)||/\.(jpe?g|png|webp|heic|bmp)$/i.test(f.name)){const im=await cpImagemDeArquivo(f);thumb=cpMiniatura(im);qr=await cpQR(im);texto=await cpOCR(cpPreparar(im),st);const r0=cpInterpretar(texto);if(!r0.valor||!cpData(texto).data||(r0.tipo==='pix'&&!r0.para.nome)){st('Lendo de novo com mais detalhe…');texto+='\n'+await cpOCR(cpPreparar(im,true),st)}}
+  else texto=await f.text();
+  return{texto,thumb,qr}}
+function cpStatus(msg){let el=document.getElementById('cp-st');if(!msg){if(el)el.remove();return}if(!el){el=document.createElement('div');el.id='cp-st';el.className='cp-st';document.body.appendChild(el)}el.innerHTML=`${avatarSVG('merlin','cp-st-av')}<span>${esc(msg)}</span>`}
+async function cpProcessar(itens){if(!podeLancar())return toast('Seu perfil não pode lançar compras');const novos=[];
+  try{for(const it of itens){const st=m=>cpStatus((itens.length>1?`(${novos.length+1}/${itens.length}) `:'')+m);st('Lendo '+(it.nome||'a imagem')+'…');
+      let lido;if(it.file)lido=await cpLerArquivo(it.file,st);else if(it.canvas){lido={thumb:cpMiniatura(it.canvas),qr:await cpQR(it.canvas),texto:await cpOCR(cpPreparar(it.canvas),st)}}else lido={texto:it.texto||'',thumb:'',qr:''};
+      const r=cpInterpretar(lido.texto);r.thumb=lido.thumb;r.texto=lido.texto;r.arquivo=it.nome||'';
+      if(lido.qr){const k=(lido.qr.match(/\d{44}/)||[''])[0];if(chaveOk(k)){r.chave=k;if(r.tipo==='cupom'&&!r.cnpj)r.cnpj=k.slice(6,20)}r.qr=/^https?:/.test(lido.qr)?lido.qr:''}
+      if(r.tipo==='cupom'&&r.cnpj&&db.lojas&&db.lojas[r.cnpj]){r.desc=db.lojas[r.cnpj].nome;if(db.lojas[r.cnpj].cat)r.cat=db.lojas[r.cnpj].cat}
+      if(!r.data)r.data=hojeISO();r.dup=cpDuplicado(r);novos.push(r)}}
+  catch(e){toast('Não consegui ler: '+e.message)}finally{cpStatus('')}
+  if(novos.length){CP_FILA=CP_FILA.concat(novos);cpModal()}}
+function cpDuplicado(r){return db.tx.find(t=>(r.chave&&t.chave===r.chave)||(r.e2e&&t.e2e===r.e2e)||(r.valor&&Math.abs(Math.abs(t.valor)-r.valor)<.01&&t.data===r.data&&(t.origem==='cupom'||t.origem==='comprovante'||normTxt(t.desc).slice(0,10)===normTxt(r.desc).slice(0,10))))||null}
+
+/* ---------- câmera ---------- */
+const cpCelular=()=>matchMedia('(pointer:coarse)').matches;
+function cpEscolher(camera){const i=document.createElement('input');i.type='file';i.accept='image/*,application/pdf,.pdf';i.multiple=!camera;if(camera)i.setAttribute('capture','environment');i.style.display='none';
+  i.onchange=()=>{const fs=Array.from(i.files||[]);i.remove();if(fs.length)cpProcessar(fs.map(f=>({file:f,nome:f.name})))};document.body.appendChild(i);i.click()}
+let CP_STREAM=null,CP_FACE='environment';
+async function cpCamera(){if(!podeLancar())return toast('Seu perfil não pode lançar compras');if(cpCelular()||!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)return cpEscolher(true);
+  let m=document.getElementById('cp-cam');if(!m){m=document.createElement('div');m.id='cp-cam';m.className='cp-ov';document.body.appendChild(m)}
+  m.innerHTML=`<div class="cp-cam-in"><div class="cp-cam-top"><b>Fotografe a nota ou o comprovante</b><button class="cp-x" onclick="cpCameraFechar()" aria-label="Fechar">×</button></div><div class="cp-vid"><video id="cp-v" playsinline autoplay muted></video><div class="cp-guia"></div></div><p class="note">Deixe a nota inteira dentro da moldura, reta e bem iluminada.</p>
+   <div class="cp-acts"><button class="btn ghost" onclick="cpCameraFechar();cpEscolher(false)">Escolher arquivo</button><button class="btn ghost" onclick="cpTrocarCam()">Trocar câmera</button><button class="cp-shot" onclick="cpCapturar()" aria-label="Tirar foto"></button></div></div>`;
+  try{CP_STREAM=await navigator.mediaDevices.getUserMedia({video:{facingMode:CP_FACE,width:{ideal:1920},height:{ideal:1080}},audio:false});const v=document.getElementById('cp-v');v.srcObject=CP_STREAM;await v.play()}
+  catch(e){cpCameraFechar();toast('Não consegui abrir a câmera — escolha uma foto ou PDF');cpEscolher(false)}}
+function cpCameraFechar(){if(CP_STREAM){CP_STREAM.getTracks().forEach(t=>t.stop());CP_STREAM=null}const m=document.getElementById('cp-cam');if(m)m.remove()}
+function cpTrocarCam(){CP_FACE=CP_FACE==='environment'?'user':'environment';if(CP_STREAM){CP_STREAM.getTracks().forEach(t=>t.stop());CP_STREAM=null}cpCamera()}
+function cpCapturar(){const v=document.getElementById('cp-v');if(!v||!v.videoWidth)return;const c=document.createElement('canvas');c.width=v.videoWidth;c.height=v.videoHeight;c.getContext('2d').drawImage(v,0,0);cpCameraFechar();cpProcessar([{canvas:c,nome:'foto da câmera'}])}
+
+/* ---------- conferência e lançamento ---------- */
+const CP_TIPOS=[['gasto','Compra / gasto'],['interno','Entre suas contas'],['casal','Entre vocês'],['entrada','Recebido'],['guardado','Guardado']];
+function cpModal(){CP_FILA.forEach((r,i)=>{r.dup=cpDuplicado(r);if(!r.dup){const o=CP_FILA.slice(0,i).find(x=>(r.e2e&&x.e2e===r.e2e)||(r.chave&&x.chave===r.chave)||(x.valor&&Math.abs(x.valor-(r.valor||0))<.01&&x.data===r.data&&x.tipo===r.tipo));if(o)r.dup={desc:o.desc+' (nesta mesma leitura)',valor:o.valor,data:o.data}}});let m=document.getElementById('cp-modal');if(!CP_FILA.length){if(m)m.remove();return}if(!m){m=document.createElement('div');m.id='cp-modal';m.className='cp-ov';document.body.appendChild(m)}
+  const card=(r,i)=>`<article class="cp-card"><div class="cp-tag ${r.tipo}">${r.tipo==='cupom'?'Nota fiscal':esc(r.tipoTxt||'Comprovante')}</div>
+   <div class="cp-g">${r.thumb?`<img class="cp-th" src="${r.thumb}" alt="Imagem lida">`:''}<div class="cp-f">
+    ${r.avisos.length?`<p class="cp-av">${r.avisos.map(esc).join(' · ')}</p>`:''}${r.dup?`<p class="cp-av dup">Parece já lançado: ${esc(r.dup.desc)} · ${brl(Math.abs(r.dup.valor))} em ${dataBR(r.dup.data)}</p>`:''}
+    <label class="fl">Descrição<input class="f" value="${esc(r.desc)}" onchange="CP_FILA[${i}].desc=this.value"></label>
+    <div class="cp-row"><label class="fl">Valor (R$)<input class="f" type="number" step="0.01" min="0" value="${r.valor!=null?r.valor.toFixed(2):''}" onchange="CP_FILA[${i}].valor=+this.value"></label><label class="fl">Data<input class="f" type="date" value="${r.data}" onchange="CP_FILA[${i}].data=this.value"></label></div>
+    <div class="cp-row"><label class="fl">Tipo<select class="f" onchange="CP_FILA[${i}].cls=this.value;cpModal()">${CP_TIPOS.map(([v,l])=>`<option value="${v}" ${r.cls===v?'selected':''}>${l}</option>`).join('')}</select></label>
+     ${r.cls==='gasto'?`<label class="fl">Categoria<select class="f" onchange="CP_FILA[${i}].cat=this.value">${CATS.map(c=>`<option ${r.cat===c?'selected':''}>${c}</option>`).join('')}</select></label>`:''}</div>
+    <div class="cp-row"><label class="fl">Forma<select class="f" onchange="CP_FILA[${i}].forma=this.value">${FORMAS.map(c=>`<option ${r.forma===c?'selected':''}>${c}</option>`).join('')}</select></label><label class="fl">Pessoa<select class="f" onchange="CP_FILA[${i}].pessoa=this.value">${PESSOAS.map(c=>`<option value="${c}" ${r.pessoa===c?'selected':''}>${esc(NM(c))}</option>`).join('')}</select></label></div>
+    ${r.tipo==='pix'&&(r.de.nome||r.para.nome)?`<p class="cp-info">De <b>${esc(r.de.nome||'?')}</b>${r.de.inst?` (${esc(cpBancoCurto(r.de.inst))})`:''} para <b>${esc(r.para.nome||'?')}</b>${r.para.inst?` (${esc(cpBancoCurto(r.para.inst))})`:''}${r.cls==='interno'?' — fica fora dos gastos.':''}</p>`:''}
+    ${r.saldoVale!=null&&r.forma==='VR/VA'?`<p class="cp-info">Saldo do vale depois da compra: <b>${brl(r.saldoVale)}</b></p>`:''}
+    ${r.itens&&r.itens.length?`<details class="cp-it"><summary>${r.itens.length} itens lidos${Math.abs(r.itens.reduce((s,x)=>s+x.v,0)-(r.valor||0))<.05?' · conferem com o total':''}</summary><ul>${r.itens.map(x=>`<li><span>${esc(x.d)}</span><b>${brl(x.v)}</b></li>`).join('')}</ul></details>`:''}
+    ${r.qr?`<p class="cp-info"><a href="${esc(r.qr)}" target="_blank" rel="noopener">Ver a nota no site da Sefaz</a></p>`:''}
+    <details class="cp-it"><summary>Texto lido</summary><pre>${esc((r.texto||'').slice(0,1800))}</pre></details>
+    <div class="cp-acts"><button class="btn ghost" onclick="CP_FILA.splice(${i},1);cpModal()">Descartar</button><button class="btn" onclick="cpLancar(${i})">${r.dup?'Lançar mesmo assim':'Lançar'}</button></div></div></div></article>`;
+  m.innerHTML=`<div class="cp-box" role="dialog" aria-modal="true" aria-label="Conferir lançamento"><div class="cp-head">${avatarSVG('merlin','cp-av-m')}<div><b>Confira antes de lançar</b><small>Li ${CP_FILA.length===1?'o documento':CP_FILA.length+' documentos'}. Ajuste o que precisar.</small></div><button class="cp-x" onclick="CP_FILA=[];cpModal()" aria-label="Fechar">×</button></div>
+   <div class="cp-list">${CP_FILA.map(card).join('')}</div>${CP_FILA.length>1?`<div class="cp-foot"><button class="btn" onclick="cpLancarTodos()">Lançar todos (${CP_FILA.length})</button></div>`:''}</div>`}
+function cpTx(r){const v=Math.abs(+r.valor||0);const t={id:db.nextId++,data:r.data,desc:String(r.desc||'Compra').slice(0,90),valor:r.cls==='entrada'?v:-v,cat:r.cls==='gasto'?(r.cat||'Outros'):r.cls==='guardado'?'Reserva':'Outros',forma:r.forma,pessoa:r.pessoa,cls:r.cls,banco:r.tipo==='cupom'?'Nota fiscal':(r.banco||'Comprovante'),origem:r.tipo==='cupom'?'cupom':'comprovante'};
+  if(r.chave)t.chave=r.chave;if(r.e2e)t.e2e=r.e2e;if(r.hora)t.hora=r.hora;if(r.itens&&r.itens.length)t.itens=r.itens.slice(0,60);if(r.cnpj)t.cnpj=r.cnpj;if(r.saldoVale!=null)t.saldoVale=r.saldoVale;return t}
+function cpLancar(i,silencioso){const r=CP_FILA[i];if(!r)return;if(!(+r.valor>0))return toast('Digite o valor');if(!r.data)return toast('Escolha a data');
+  db.tx.push(cpTx(r));if(r.tipo==='cupom'&&r.cnpj){db.lojas=db.lojas||{};db.lojas[r.cnpj]={nome:r.desc,cat:r.cat}}
+  CP_FILA.splice(i,1);cpSalvar();cur=r.data.slice(0,7);if(!silencioso){toast(`Lançado: ${r.desc} · ${brl(+r.valor)}`);cpModal();render()}}
+function cpLancarTodos(){const n=CP_FILA.length;for(let i=CP_FILA.length-1;i>=0;i--){const r=CP_FILA[i];if(+r.valor>0&&r.data)cpLancar(i,true)}toast(`${n-CP_FILA.length} lançamento(s) feito(s)`);cpModal();render()}
+
+/* ---------- pontos de entrada ---------- */
+function cpPainel(){if(!podeLancar())return'';return`<section class="panel sec cp-entrada" id="cp-drop" data-livre><div class="cp-e-t">${avatarSVG('merlin','cp-e-av')}<div><h2>Lançar por foto ou comprovante</h2><p class="note">Fotografe a nota fiscal (cupom) ou envie o comprovante do Pix, transferência ou boleto (imagem ou PDF). O Merlin lê o valor, a data, a loja e a forma de pagamento. No celular com o app instalado, toque em <b>Compartilhar</b> no app do banco e escolha <b>CasaFinance</b>.</p></div></div>
+  <div class="cp-e-b"><button class="btn" onclick="cpCamera()">${CP_ICO.cam} Fotografar nota</button><button class="btn ghost" onclick="cpEscolher(false)">${CP_ICO.doc} Enviar foto ou PDF</button><span class="note cp-e-dica">ou arraste o arquivo aqui · Ctrl+V cola um print</span></div></section>`}
+const CP_ICO={cam:'<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>',doc:'<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M9 13h6M9 17h6"/></svg>'};
+{const _l=PAGES.lancamentos;PAGES.lancamentos=()=>{const h=_l();const i=h.indexOf('<section class="panel sec">');return i>=0?h.slice(0,i)+cpPainel()+h.slice(i):h+cpPainel()}}
+{const _a=AFTER.lancamentos;AFTER.lancamentos=()=>{if(_a)_a();const dz=document.getElementById('cp-drop');if(!dz)return;['dragenter','dragover'].forEach(e=>dz.addEventListener(e,ev=>{ev.preventDefault();dz.classList.add('on')}));['dragleave','drop'].forEach(e=>dz.addEventListener(e,ev=>{ev.preventDefault();dz.classList.remove('on')}));dz.addEventListener('drop',ev=>{const fs=Array.from(ev.dataTransfer.files||[]);if(fs.length)cpProcessar(fs.map(f=>({file:f,nome:f.name})))})}}
+document.addEventListener('paste',ev=>{if(page!=='lancamentos'||!podeLancar()||/input|textarea/i.test((ev.target&&ev.target.tagName)||''))return;const fs=Array.from((ev.clipboardData&&ev.clipboardData.files)||[]).filter(f=>/image|pdf/.test(f.type));if(fs.length){ev.preventDefault();cpProcessar(fs.map(f=>({file:f,nome:'imagem colada'})))}});
+{const _i=PAGES.inicio;PAGES.inicio=()=>{const h=_i();if(!podeLancar())return h;const b=`<div class="cp-rap" data-livre><button class="cp-rb" onclick="cpCamera()">${CP_ICO.cam}<span>Fotografar nota</span></button><button class="cp-rb" onclick="cpEscolher(false)">${CP_ICO.doc}<span>Enviar comprovante</span></button></div>`;
+  const k=h.indexOf('<section class="ed-home');return k>=0?h.slice(0,k)+b+h.slice(k):h.replace('<h2 class="sec">Escolha a visão</h2>',b+'<h2 class="sec">Escolha a visão</h2>')}}
+// comprovantes jogados na área de extratos também funcionam
+{const _la=lerArquivos;lerArquivos=async function(files){files=Array.from(files||[]);const comp=[],ext=[];
+  for(const f of files){if(/^image\//.test(f.type)||/\.(jpe?g|png|webp|heic)$/i.test(f.name)){comp.push(f);continue}
+    if(/\.pdf$/i.test(f.name)){try{const L=await pdfLines(new Uint8Array(await f.arrayBuffer()));const tl=normTxt(L.slice(0,30).join(' '));if(L.length<60&&/comprovante|documento auxiliar|nfc-?e|cupom fiscal|transferencia realizada|pix (enviado|realizado)/.test(tl)&&!/extrato|saldo anterior|lancamentos/.test(tl)){comp.push(f);continue}}catch(e){}}ext.push(f)}
+  if(comp.length)cpProcessar(comp.map(f=>({file:f,nome:f.name})));if(ext.length)return _la(ext)}}
+// extrato importado depois: concilia com o que já foi lançado por nota/comprovante
+{const _imp=importar;importar=function(){let n=0;batches.forEach(b=>b.rows.forEach(r=>{if(!r.on)return;const t=db.tx.find(t=>(t.origem==='cupom'||t.origem==='comprovante')&&!t.hash&&Math.abs(Math.abs(t.valor)-Math.abs(r.valor))<.01&&Math.abs(diasEntre(t.data,r.data))<=1);
+    if(t){t.hash=r.hash;db.hashes[r.hash]=1;if(t.origem==='comprovante'&&b.banco)t.banco=b.banco;r.on=false;n++}}));_imp.apply(this,arguments);if(n)setTimeout(()=>toast(`${n} movimentação(ões) já estavam lançadas por nota ou comprovante e foram conciliadas`),1200)}}
+// Merlin
+H.nota=()=>A(podeLancar()?`Vamos lançar! Fotografe a nota fiscal ou envie o comprovante (imagem ou PDF) que eu leio valor, data, loja e forma de pagamento. <br><button class="btn sm" style="margin-top:8px" onclick="merlinOpen(false);cpCamera()">Fotografar nota</button> <button class="btn sm ghost" style="margin-top:8px" onclick="merlinOpen(false);cpEscolher(false)">Enviar comprovante</button>`:'Seu perfil não pode lançar compras. Peça para o administrador.',null,{mod:'lancamentos'});
+{const _rota=MZ.rota;MZ.rota=q=>{if(/(lanc|registr|ler|le|foto|fotograf|escane|enviar|mandar)\w* (a |uma |o |um )?(nota|cupom|notinha|comprovante|recibo)|(nota|cupom) fiscal|comprovante (do |de )?(pix|ted|boleto|pagamento)/.test(q)&&!/quanto|quais|qual/.test(q))return{fn:H.nota,ctx:{}};return _rota(q)}}
+MERLIN_CAT.push({mod:'lancamentos',nome:'Lançar por foto',p:['Quero lançar uma nota fiscal','Ler comprovante de Pix','Fotografar cupom']});
+if(typeof SOBRE!=='undefined')SOBRE.splice(1,0,{k:/foto|camera|cupom|nota fiscal|comprovante|compartilhar/,t:'Lançar por foto',p:'lancamentos',x:'Em Lançamentos (ou no Início) toque em Fotografar nota para ler o cupom fiscal pela câmera do celular ou do notebook, ou envie o comprovante de Pix, transferência ou boleto em imagem ou PDF. No celular, com o app instalado, use Compartilhar no app do banco e escolha CasaFinance. Eu mostro o que li para você conferir antes de lançar.'});
+
+/* ---------- recebe arquivos compartilhados de outros apps (PWA instalado) ---------- */
+(async()=>{try{const u=new URLSearchParams(location.search);if(!u.has('compartilhado')||!('caches' in window))return;history.replaceState(null,'',location.pathname);
+  const c=await caches.open('cf-share'),mr=await c.match(new URL('./__share/meta',location.href));if(!mr)return;const meta=await mr.json(),files=[];
+  for(const f of meta.files||[]){const r=await c.match(new URL('./__share/'+f.i,location.href));if(r){const b=await r.blob();files.push(new File([b],f.name||'comprovante',{type:f.type||b.type}))}}
+  await caches.delete('cf-share');CP_PEND={files,texto:meta.text||''};cpTentarPendente()}catch(e){}})();
+function cpTentarPendente(){if(!CP_PEND||!perfilAtual()||document.body.classList.contains('gated'))return;const p=CP_PEND;CP_PEND=null;
+  const itens=p.files.map(f=>({file:f,nome:f.name}));if(!itens.length&&/\d+,\d{2}/.test(p.texto))itens.push({texto:p.texto,nome:'texto compartilhado'});if(itens.length){go('lancamentos');cpProcessar(itens)}}
+{const _r=render;render=function(){_r.apply(this,arguments);if(CP_PEND)setTimeout(cpTentarPendente,300)}}
+setTimeout(()=>{try{if(new URLSearchParams(location.search).get('nota')){history.replaceState(null,'',location.pathname);const t=setInterval(()=>{if(perfilAtual()&&!document.body.classList.contains('gated')){clearInterval(t);go('lancamentos');cpCamera()}},500)}}catch(e){}},400);
+
+(()=>{const st=document.createElement('style');st.textContent=`
+.cp-entrada{border:2px dashed var(--line2);transition:border-color .15s,background .15s}.cp-entrada.on{border-color:#1cb0f6;background:color-mix(in srgb,#1cb0f6 7%,var(--paper))}
+.cp-e-t{display:flex;gap:14px;align-items:flex-start}.cp-e-t h2{margin:0 0 4px}.cp-e-t p{margin:0}.cp-e-av{width:52px;height:52px;border-radius:14px;flex:none}
+.cp-e-b{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:14px}.cp-e-b .btn{display:inline-flex;gap:7px;align-items:center}.cp-e-dica{margin-left:4px}
+.cp-rap{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:14px 0 4px}.cp-rb{display:flex;gap:10px;align-items:center;justify-content:center;border:2px solid var(--line);border-bottom-width:4px;border-radius:16px;background:var(--paper);color:var(--ink);font:inherit;font-weight:700;padding:12px;cursor:pointer}.cp-rb svg{color:#1f8a5b;width:22px;height:22px;flex:none}#view .cp-rb span{font-size:14px;line-height:1.2;display:inline;margin:0;font-weight:700;color:var(--ink);white-space:nowrap}.cp-rb{min-height:52px;font-size:14px}
+.cp-ov{position:fixed;inset:0;z-index:320;background:rgba(5,10,20,.6);display:grid;place-items:center;padding:14px}
+.cp-box{background:var(--paper);border-radius:20px;width:min(760px,100%);max-height:calc(100vh - 28px);display:grid;grid-template-rows:auto 1fr auto;overflow:hidden;box-shadow:0 24px 60px rgba(0,0,0,.3)}
+.cp-head{display:flex;gap:12px;align-items:center;padding:14px 16px;border-bottom:1px solid var(--line)}.cp-head div{flex:1;display:grid}.cp-head small{color:var(--ink3)}.cp-av-m{width:44px;height:44px;border-radius:12px}
+.cp-x{border:0;background:none;font-size:28px;line-height:1;color:var(--ink3);cursor:pointer;padding:4px 8px}
+.cp-list{overflow:auto;padding:14px 16px;display:grid;gap:14px}.cp-foot{padding:12px 16px;border-top:1px solid var(--line);display:flex;justify-content:flex-end}
+.cp-card{border:1px solid var(--line);border-radius:16px;padding:14px;position:relative}
+.cp-tag{display:inline-block;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;padding:4px 10px;border-radius:9px;margin-bottom:10px;background:color-mix(in srgb,#1f8a5b 14%,var(--paper));color:#1f8a5b}.cp-tag.pix{background:color-mix(in srgb,#1cb0f6 14%,var(--paper));color:#1899d6}
+.cp-g{display:grid;grid-template-columns:120px 1fr;gap:14px}.cp-g:not(:has(.cp-th)){grid-template-columns:1fr}
+.cp-th{width:120px;max-height:240px;object-fit:cover;object-position:top;border-radius:10px;border:1px solid var(--line)}
+.cp-f{display:grid;gap:10px;min-width:0}.cp-f .fl{display:grid;gap:4px;font-size:13px;color:var(--ink2)}.cp-f .f{width:100%}
+.cp-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.cp-av{margin:0;font-size:13px;padding:8px 10px;border-radius:10px;background:color-mix(in srgb,#ff9600 14%,var(--paper))}.cp-av.dup{background:color-mix(in srgb,#ff4b4b 12%,var(--paper))}
+.cp-info{margin:0;font-size:13.5px;color:var(--ink2)}.cp-info a{color:#1899d6}
+.cp-it summary{cursor:pointer;font-size:13px;color:var(--ink2)}.cp-it ul{list-style:none;padding:0;margin:6px 0 0;display:grid;gap:3px;font-size:13px}.cp-it li{display:flex;justify-content:space-between;gap:10px}.cp-it pre{white-space:pre-wrap;font-size:11.5px;max-height:180px;overflow:auto;background:color-mix(in srgb,var(--ink) 4%,var(--paper));padding:8px;border-radius:8px;margin:6px 0 0}
+.cp-acts{display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap}
+.cp-st{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:330;display:flex;gap:10px;align-items:center;background:var(--paper);border:2px solid var(--line);border-radius:16px;padding:10px 16px 10px 10px;box-shadow:0 12px 30px rgba(0,0,0,.18);font-weight:600;max-width:calc(100vw - 24px)}
+.cp-st-av{width:38px;height:38px;border-radius:10px;animation:edBob 1.2s ease-in-out infinite}
+.cp-cam-in{background:var(--paper);border-radius:20px;padding:14px;width:min(720px,100%);display:grid;gap:10px}.cp-cam-top{display:flex;justify-content:space-between;align-items:center}
+.cp-vid{position:relative;background:#000;border-radius:14px;overflow:hidden;aspect-ratio:4/3}.cp-vid video{width:100%;height:100%;object-fit:cover;display:block}
+.cp-guia{position:absolute;inset:8% 22%;border:3px solid rgba(255,255,255,.85);border-radius:12px;box-shadow:0 0 0 999px rgba(0,0,0,.25)}
+.cp-cam-in .cp-acts{align-items:center;justify-content:space-between}.cp-shot{width:66px;height:66px;border-radius:50%;border:5px solid #fff;background:#1f8a5b;box-shadow:0 0 0 3px #1f8a5b;cursor:pointer;order:3}
+@media(max-width:700px){.cp-g{grid-template-columns:1fr}.cp-th{width:100%;max-height:160px}.cp-ov{padding:0;place-items:end stretch}.cp-box{border-radius:20px 20px 0 0;max-height:94vh;width:100%}.cp-e-dica{display:none}.cp-e-b .btn{flex:1;justify-content:center}.cp-st{bottom:calc(84px + env(safe-area-inset-bottom))}}
+`;document.head.appendChild(st)})();
+
 
 /* ================== TEMA ================== */
 const mq=window.matchMedia?matchMedia('(prefers-color-scheme: dark)'):null;let themeMode='auto';
